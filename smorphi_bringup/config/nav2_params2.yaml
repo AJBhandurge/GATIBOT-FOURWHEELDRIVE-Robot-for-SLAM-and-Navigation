@@ -1,0 +1,281 @@
+# ============================================================
+# NAV2 PARAM FILE - OPTIMIZED FOR REAL AMR (smorphi)
+# Author: Ayush Bhandurge (updated for autonomous mapping)
+# Goals:
+#   1. Robot strictly follows the planned path
+#   2. Robot never enters costmap lethal/inscribed zones
+#   3. Dynamic obstacle handling improved
+#   4. RPi4B CPU-friendly
+#   5. Compatible with autonomous frontier exploration
+# ============================================================
+# KEY CHANGES FROM PREVIOUS VERSION:
+#   - base_footprint used consistently everywhere
+#   - local_costmap moved inside controller_server (correct Nav2 pattern)
+#   - static_layer removed from local_costmap (not needed in SLAM mode)
+#   - track_unknown_space: true in global_costmap (required for explore)
+#   - inflation_radius increased 0.2 -> 0.40 (real robot clearance)
+#   - global_costmap update frequency 0.5 -> 1.0 Hz (faster updates)
+#   - lifecycle_manager node_names matches launch file exactly
+#   - amcl kept but disabled during SLAM (only used for localization mode)
+# ============================================================
+
+
+# ── AMCL ────────────────────────────────────────────────────
+# NOTE: AMCL is NOT used during SLAM mapping.
+# It is only needed when navigating on a saved map.
+# Keep this section for future use but it won't run during mapping.
+amcl:
+  ros__parameters:
+    use_sim_time: false
+    base_frame_id: "base_footprint"
+    global_frame_id: "map"
+    odom_frame_id: "odom"
+    scan_topic: scan
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    min_particles: 300
+    max_particles: 1200
+    laser_model_type: "likelihood_field"
+    laser_likelihood_max_dist: 2.0
+    z_hit: 0.5
+    z_short: 0.05
+    z_max: 0.05
+    z_rand: 0.5
+    sigma_hit: 0.2
+    lambda_short: 0.1
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    tf_broadcast: true
+    transform_tolerance: 0.5
+    recovery_alpha_slow: 0.0
+    recovery_alpha_fast: 0.0
+    update_min_d: 0.08
+    update_min_a: 0.05
+    resample_interval: 2
+    save_pose_rate: 0.5
+
+
+# ── CONTROLLER SERVER ────────────────────────────────────────
+# local_costmap lives INSIDE controller_server (correct Nav2 pattern)
+# Do NOT launch costmaps as separate nodes in the launch file
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    controller_frequency: 8.0
+    min_x_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["goal_checker"]
+    current_goal_checker: "goal_checker"
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.4
+      movement_time_allowance: 30.0
+
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.3
+      yaw_goal_tolerance: 0.3
+      stateful: True
+
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+
+      # --- Velocity limits ---
+      min_vel_x: 0.0
+      max_vel_x: 0.22
+      max_vel_theta: 0.8
+      min_speed_xy: 0.0
+      max_speed_xy: 0.22
+      min_speed_theta: 0.0
+
+      # --- Acceleration limits ---
+      acc_lim_x: 1.0
+      acc_lim_theta: 1.5
+      decel_lim_x: -2.0
+      decel_lim_theta: -2.5
+
+      # --- Trajectory sampling ---
+      vx_samples: 15
+      vtheta_samples: 20
+      sim_time: 1.7
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 0.2
+      trans_stopped_velocity: 0.25
+      short_circuit_trajectory_evaluation: True
+      stateful: True
+
+      critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist", "RotateToGoal"]
+
+      BaseObstacle.scale: 0.01
+      BaseObstacle.sum_scores: true
+
+      GoalAlign.scale: 10.0
+      GoalAlign.forward_point_distance: 0.2
+
+      PathAlign.scale: 40.0
+      PathAlign.forward_point_distance: 0.2
+
+      PathDist.scale: 40.0
+
+      GoalDist.scale: 20.0
+
+      RotateToGoal.scale: 10.0
+      RotateToGoal.slowing_factor: 5.0
+      RotateToGoal.lookahead_time: -1.0
+
+      Oscillation.scale: 1.0
+
+
+# ── LOCAL COSTMAP ────────────────────────────────────────────
+# Nested under its own top-level key (Nav2 standard pattern)
+# lifecycle_manager activates this via controller_server
+# static_layer REMOVED — not needed during SLAM mapping
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: false
+      global_frame: odom
+      robot_base_frame: base_footprint
+      update_frequency: 4.0
+      publish_frequency: 2.0
+      resolution: 0.05
+      robot_radius: 0.20
+      rolling_window: true
+      width: 3
+      height: 3
+      plugins: ["obstacle_layer", "inflation_layer"]
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          marking: True
+          clearing: True
+          max_obstacle_height: 2.6
+          raytrace_max_range: 4.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 2.5
+        inflation_radius: 0.40
+
+
+# ── GLOBAL COSTMAP ───────────────────────────────────────────
+# track_unknown_space: true is CRITICAL for frontier exploration
+# Without it, explore_lite/custom_explorer see NO frontiers
+# update_frequency increased to 1.0 Hz for faster obstacle updates
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: false
+      global_frame: map
+      robot_base_frame: base_footprint
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      resolution: 0.05
+      robot_radius: 0.20
+      track_unknown_space: true
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          marking: True
+          clearing: True
+          max_obstacle_height: 2.6
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 2.5
+        inflation_radius: 0.40
+
+
+# ── PLANNER SERVER ───────────────────────────────────────────
+# allow_unknown: true lets robot plan paths through unexplored areas
+# This is required for frontier exploration to work
+planner_server:
+  ros__parameters:
+    use_sim_time: false
+    expected_planner_frequency: 1.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.5
+      use_astar: true
+      allow_unknown: true
+
+
+# ── BT NAVIGATOR ─────────────────────────────────────────────
+bt_navigator:
+  ros__parameters:
+    use_sim_time: false
+    global_frame: map
+    robot_base_frame: base_footprint
+    odom_topic: /odom
+    bt_loop_duration: !!int 10
+    default_server_timeout: !!int 20
+    default_nav_through_poses_bt_xml: ""
+    default_nav_to_pose_bt_xml: "/home/smorphi/s_ws/src/smorphi_bringup/src/navigate_w_replanning_only_if_path_becomes_invalid_custom_file.xml"
+    plugin_lib_names:
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_follow_path_action_bt_node
+      - nav2_goal_reached_condition_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_initial_pose_received_condition_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - nav2_transform_available_condition_bt_node
+      - nav2_clear_costmap_service_bt_node
+      - nav2_navigate_to_pose_action_bt_node
+
+
+bt_navigator_navigate_to_pose_rclcpp_node:
+  ros__parameters:
+    use_sim_time: false
+
+
+# ── WAYPOINT FOLLOWER ────────────────────────────────────────
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: false
+    loop_rate: 10
+    stop_on_failure: false
+
+
+# ── LIFECYCLE MANAGER ────────────────────────────────────────
+# IMPORTANT: This list must match EXACTLY what is launched
+# in your launch file node_names list.
+# Costmaps are NOT listed here — they are managed internally
+# by controller_server and planner_server.
+lifecycle_manager:
+  ros__parameters:
+    use_sim_time: false
+    autostart: true
+    node_names:
+      - controller_server
+      - planner_server
+      - bt_navigator
+      - waypoint_follower

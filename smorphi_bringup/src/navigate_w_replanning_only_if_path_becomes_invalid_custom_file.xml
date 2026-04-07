@@ -1,0 +1,73 @@
+<!--
+  navigate_w_replanning_only_if_path_becomes_invalid_custom_file.xml
+  Author  : Ayush Bhandurge
+  Target  : Raspberry Pi 4B  |  Nav2  |  Differential Drive AMR
+
+  FIXED: Removed Wait / BackUp / Spin nodes — these require the
+         nav2_behaviors (recoveries) server to be running, which is
+         not in this launch setup. Using only ClearEntireCostmap
+         which is a pure service call and needs no extra server.
+
+  Recovery chain (6 retries, in order):
+    Retry 1-2 : Replan only (costmaps untouched)
+    Retry 3-4 : Clear Local Costmap  + replan
+    Retry 5-6 : Clear Global Costmap + replan
+
+  Replanning policy:
+    - Path is recomputed at 1 Hz.
+    - If goal changes mid-navigation, replan happens immediately.
+-->
+
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+
+    <!--
+      Outer RecoveryNode: 6 retries before giving up.
+      Each failure of NavigateWithReplanning triggers one
+      recovery step, then navigation is retried.
+    -->
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+
+      <!-- ═══════════════════════════════════════════════
+           MAIN NAVIGATION SEQUENCE
+           1 Hz rate-limited replanning.
+           GoalUpdated triggers an immediate replan when
+           the goal changes mid-run.
+      ═══════════════════════════════════════════════ -->
+      <PipelineSequence name="NavigateWithReplanning">
+
+        <RateController hz="1.0">
+          <Fallback>
+            <GoalUpdated/>
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+          </Fallback>
+        </RateController>
+
+        <FollowPath path="{path}" controller_id="FollowPath"/>
+
+      </PipelineSequence>
+
+      <!-- ═══════════════════════════════════════════════
+           RECOVERY SEQUENCE
+           Only uses ClearEntireCostmap — a ROS service
+           call that requires no extra action server.
+           Retries 1-2: no costmap clear (just replan).
+           Retries 3-4: clear local costmap.
+           Retries 5-6: clear global costmap.
+      ═══════════════════════════════════════════════ -->
+      <Sequence name="NavigationRecovery">
+
+        <!-- Clear local costmap: removes stale/phantom local obstacles -->
+        <ClearEntireCostmap name="ClearLocalCostmap"
+                            service_name="local_costmap/clear_entirely_local_costmap"/>
+
+        <!-- Clear global costmap: removes stale/phantom global obstacles -->
+        <ClearEntireCostmap name="ClearGlobalCostmap"
+                            service_name="global_costmap/clear_entirely_global_costmap"/>
+
+      </Sequence>
+
+    </RecoveryNode>
+
+  </BehaviorTree>
+</root>

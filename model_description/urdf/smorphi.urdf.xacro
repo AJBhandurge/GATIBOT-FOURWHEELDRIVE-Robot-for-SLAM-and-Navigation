@@ -1,0 +1,173 @@
+<?xml version="1.0"?>
+<robot name="smorphi" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ============================================================
+       smorphi.urdf.xacro
+       Smorphi single-board  |  4-wheel Mecanum
+       ROS2 Humble
+
+       TF TREE this URDF produces (via robot_state_publisher):
+         base_footprint
+           └── base_link               (z +0.06 m above ground)
+                 ├── front_left_wheel  (x+0.035, y+0.065, z-0.06)
+                 ├── front_right_wheel (x+0.035, y-0.065, z-0.06)
+                 ├── rear_left_wheel   (x-0.035, y+0.065, z-0.06)
+                 ├── rear_right_wheel  (x-0.035, y-0.065, z-0.06)
+                 └── laser_link        (x 0, y 0, z+0.05)
+
+       PHYSICAL VALUES (verified):
+         base:          0.17 × 0.17 × 0.05 m
+         wheel radius:  0.03 m  (60 mm diameter)
+         wheel length:  0.03 m
+         wheel_offset_x = 0.035 m  → Lx  (half front-to-rear axle dist)
+         wheel_offset_y = 0.065 m  → Ly  (half left-to-right wheel dist)
+         Lx + Ly        = 0.10 m   → wheel_dist for odometry
+  ============================================================ -->
+
+  <!-- ── Materials ──────────────────────────────────────────── -->
+  <material name="blue">   <color rgba="0.2 0.2 1.0 1.0"/> </material>
+  <material name="black">  <color rgba="0.1 0.1 0.1 1.0"/> </material>
+  <material name="silver"> <color rgba="0.7 0.7 0.7 1.0"/> </material>
+  <material name="white">  <color rgba="0.9 0.9 0.9 1.0"/> </material>
+
+  <!-- ── Dimensions ─────────────────────────────────────────── -->
+  <xacro:property name="base_size"      value="0.17"/>
+  <xacro:property name="base_height"    value="0.05"/>
+  <xacro:property name="wheel_radius"   value="0.03"/>
+  <xacro:property name="wheel_length"   value="0.03"/>
+  <xacro:property name="wheel_offset_x" value="0.035"/>
+  <xacro:property name="wheel_offset_y" value="0.065"/>
+
+  <!-- ============================================================
+       BASE FOOTPRINT
+       Ground-plane reference link. Nav2 uses this as the
+       robot's planning frame. Always at z=0.
+  ============================================================ -->
+  <link name="base_footprint"/>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child  link="base_link"/>
+    <origin xyz="0 0 0.06" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ============================================================
+       BASE LINK  —  robot body
+  ============================================================ -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${base_size} ${base_size} ${base_height}"/>
+      </geometry>
+      <material name="blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${base_size} ${base_size} ${base_height}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.0"/>
+      <!-- Inertia for uniform box: Ixx=Iyy=m(b²+c²)/12, Izz=m(a²+b²)/12 -->
+      <inertia
+        ixx="0.00583" ixy="0.0" ixz="0.0"
+        iyy="0.00583" iyz="0.0"
+        izz="0.01133"/>
+    </inertial>
+  </link>
+
+  <!-- ============================================================
+       WHEEL MACRO
+       x_reflect: +1 = front,  -1 = rear
+       y_reflect: +1 = left,   -1 = right
+  ============================================================ -->
+  <xacro:macro name="wheel" params="prefix x_reflect y_reflect">
+
+    <link name="${prefix}_wheel">
+      <visual>
+        <!-- Cylinder default axis is Z; rotate 90° around X to align with Y -->
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_length}"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_length}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <mass value="0.15"/>
+        <!-- Solid cylinder: Ixx=Iyy=m(3r²+h²)/12, Izz=mr²/2 -->
+        <inertia
+          ixx="0.000038" ixy="0.0" ixz="0.0"
+          iyy="0.000038" iyz="0.0"
+          izz="0.000068"/>
+      </inertial>
+    </link>
+
+    <joint name="${prefix}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="${prefix}_wheel"/>
+      <origin
+        xyz="${x_reflect * wheel_offset_x} ${y_reflect * wheel_offset_y} -0.06"
+        rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <dynamics damping="0.01" friction="0.1"/>
+    </joint>
+
+  </xacro:macro>
+
+  <!-- Instantiate all 4 wheels -->
+  <xacro:wheel prefix="front_left"  x_reflect="1"  y_reflect="1"/>
+  <xacro:wheel prefix="front_right" x_reflect="1"  y_reflect="-1"/>
+  <xacro:wheel prefix="rear_left"   x_reflect="-1" y_reflect="1"/>
+  <xacro:wheel prefix="rear_right"  x_reflect="-1" y_reflect="-1"/>
+
+  <!-- ============================================================
+       LASER LINK  —  RPLidar mount point
+       This is the frame that the /scan topic is published in.
+       Must match the frame_id in your rplidar launch file.
+
+       Position: top-centre of base_link, 5cm above body surface.
+       Adjust xyz if your lidar is physically offset.
+  ============================================================ -->
+  <link name="laser_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.04"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.04"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.17"/>
+      <inertia
+        ixx="0.0001" ixy="0.0" ixz="0.0"
+        iyy="0.0001" iyz="0.0"
+        izz="0.0001"/>
+    </inertial>
+  </link>
+
+  <!-- base_link → laser_link  (fixed, lidar doesn't move) -->
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="laser_link"/>
+    <!-- z = base_height/2 + 0.025 above top surface of body -->
+    <origin xyz="0.0 0.0 0.05" rpy="0 0 0"/>
+  </joint>
+
+</robot>

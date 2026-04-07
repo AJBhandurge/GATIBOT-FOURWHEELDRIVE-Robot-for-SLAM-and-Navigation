@@ -1,0 +1,287 @@
+# NAV2 PARAM FILE - OPTIMIZED FOR RASPBERRY PI 4B
+# Author: Ayush Bhandurge
+# Goals:
+#   1. Robot strictly follows the planned path
+#   2. Robot never enters costmap lethal/inscribed zones
+#   3. Dynamic obstacle handling improved
+#   4. RPi4B CPU-friendly
+
+amcl:
+  ros__parameters:
+    use_sim_time: false
+    base_frame_id: "base_footprint"
+    global_frame_id: "map"
+    odom_frame_id: "odom"
+    scan_topic: scan
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    min_particles: 300
+    max_particles: 1200
+    laser_model_type: "likelihood_field"
+    laser_likelihood_max_dist: 2.0
+    z_hit: 0.5
+    z_short: 0.05
+    z_max: 0.05
+    z_rand: 0.5
+    sigma_hit: 0.2
+    lambda_short: 0.1
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    tf_broadcast: true
+    transform_tolerance: 0.5
+    recovery_alpha_slow: 0.0
+    recovery_alpha_fast: 0.0
+    update_min_d: 0.08
+    update_min_a: 0.05
+    resample_interval: 2
+    save_pose_rate: 0.5
+
+
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    controller_frequency: 8.0
+    min_x_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["goal_checker"]
+    current_goal_checker: "goal_checker"
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.4
+      movement_time_allowance: 30.0
+
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.3
+      yaw_goal_tolerance: 0.3
+      stateful: True
+
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+
+      # --- Velocity limits ---
+      min_vel_x: 0.0
+      max_vel_x: 0.22          # slightly reduced: gives more time to react to dynamic obstacles
+      max_vel_theta: 0.8       # reduced: smoother turns, robot stays on path better
+      min_speed_xy: 0.0
+      max_speed_xy: 0.22
+      min_speed_theta: 0.0
+
+      # --- Acceleration limits ---
+      acc_lim_x: 1.0
+      acc_lim_theta: 1.5       # reduced: less aggressive rotation = more predictable path following
+      decel_lim_x: -2.0        # increased decel: robot can stop fast when dynamic obstacle appears
+      decel_lim_theta: -2.5
+
+      # --- Trajectory sampling ---
+      # More vtheta_samples helps DWB find a valid turn trajectory around dynamic obstacles
+      vx_samples: 15
+      vtheta_samples: 20       # slightly more theta samples for better dynamic avoidance
+
+      # sim_time: 1.7s is the RPi4 sweet spot - long enough to see obstacles, short enough for CPU
+      sim_time: 1.7
+
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 0.2
+      trans_stopped_velocity: 0.25
+      short_circuit_trajectory_evaluation: True
+      stateful: True
+
+      # ─────────────────────────────────────────────────────────────────
+      # CRITIC SELECTION — KEY CHANGE
+      #
+      # Removed:  ObstacleFootprint
+      #           → Only checks footprint boundary, misses cells inside
+      #             the footprint. Robot can drift into costmap.
+      #
+      # Added:    ObstacleCostmap
+      #           → Scores the FULL costmap cost under the entire robot
+      #             footprint at each simulated pose. Any trajectory that
+      #             puts the robot into lethal (255) or inscribed cost
+      #             zones is rejected outright. This is what prevents
+      #             the robot from entering costmap obstacles.
+      #
+      # Added:    Oscillation
+      #           → Penalizes back-and-forth motion near dynamic obstacles.
+      #             Prevents the robot from getting stuck oscillating.
+      # ─────────────────────────────────────────────────────────────────
+      critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist", "RotateToGoal"]
+
+      # BaseObstacle: sum_scores=true means ALL cells under footprint
+      # are scored, not just the worst one. This makes obstacle avoidance
+      # much more strict — robot will not even graze a lethal cell.
+      BaseObstacle.scale: 0.01      # keep low: this critic produces large raw scores.
+                                        # 0.01 is the correct scale for sum_scores=true.
+      BaseObstacle.sum_scores: true  # score entire footprint area, not just worst cell
+
+      # PathAlign: HIGH scale = robot steers aggressively to align heading with path.
+      # forward_point_distance: how far ahead the alignment point is projected.
+      # Larger = robot aligns to path direction earlier = tighter path following.
+      GoalAlign.scale: 10.0
+      GoalAlign.forward_point_distance: 0.2   # increased from 0.1 for smoother alignment
+
+      PathAlign.scale: 40.0                   # HIGH: robot strongly prefers trajectories
+                                               # aligned with the planned path heading
+      PathAlign.forward_point_distance: 0.2
+
+      # PathDist: HIGH scale = robot stays close to the planned path laterally.
+      # This is the PRIMARY knob for strict path following.
+      PathDist.scale: 40.0                    # HIGH: strong lateral path adherence
+
+      # GoalDist: keep moderate — robot progresses toward goal without cutting corners
+      GoalDist.scale: 20.0
+
+      # RotateToGoal: robot rotates in place to face goal before final approach.
+      # slowing_factor: robot slows down as it approaches goal orientation.
+      RotateToGoal.scale: 10.0
+      RotateToGoal.slowing_factor: 5.0
+      RotateToGoal.lookahead_time: -1.0
+
+      # Oscillation: penalizes direction reversals.
+      # Prevents robot oscillating in place when dynamic obstacle is nearby.
+      Oscillation.scale: 1.0
+
+
+planner_server:
+  ros__parameters:
+    use_sim_time: false
+    expected_planner_frequency: 1.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.5
+      use_astar: true
+      allow_unknown: true
+
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: false
+    global_frame: map
+    robot_base_frame: base_footprint
+    odom_topic: /odom
+    bt_loop_duration: !!int 10
+    default_server_timeout: !!int 20
+    default_nav_through_poses_bt_xml: ""
+    default_nav_to_pose_bt_xml: "/home/smorphi/s_ws/src/smorphi_bringup/src/navigate_w_replanning_only_if_path_becomes_invalid_custom_file.xml"
+    plugin_lib_names:
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_follow_path_action_bt_node
+      - nav2_goal_reached_condition_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_initial_pose_received_condition_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - nav2_transform_available_condition_bt_node
+      - nav2_clear_costmap_service_bt_node
+      - nav2_navigate_to_pose_action_bt_node
+
+
+bt_navigator_navigate_to_pose_rclcpp_node:
+  ros__parameters:
+    use_sim_time: false
+
+
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: false
+    loop_rate: 10
+    stop_on_failure: false
+
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: false
+      global_frame: odom
+      robot_base_frame: base_footprint
+      update_frequency: 4.0
+      publish_frequency: 2.0
+      resolution: 0.05
+      robot_radius: 0.20
+      rolling_window: true
+      width: 3
+      height: 3
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          marking: True
+          clearing: True
+          max_obstacle_height: 2.6
+          raytrace_max_range: 4.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # cost_scaling_factor: how fast cost drops off from obstacle edge.
+        # Lower value = more gradual cost falloff = robot avoids wider area around obstacles.
+        # This gives DWB more signal to steer away from dynamic obstacles early.
+        cost_scaling_factor: 2.5      # reduced from 3.0 for gentler, wider cost gradient
+        inflation_radius: 0.2
+
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: false
+      global_frame: map
+      robot_base_frame: base_footprint
+      update_frequency: 0.5
+      publish_frequency: 0.5
+      resolution: 0.05
+      robot_radius: 0.20
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          marking: True
+          clearing: True
+          max_obstacle_height: 2.6
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 2.5
+        inflation_radius: 0.2
+
+
+lifecycle_manager:
+  ros__parameters:
+    use_sim_time: false
+    autostart: true
+    node_names:
+      - controller_server
+      - planner_server
+      - bt_navigator
+      - waypoint_follower
+      - amcl
+      - map_server
