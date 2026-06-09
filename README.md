@@ -163,15 +163,12 @@ d1,d2,d3,d4,p1,p2,p3,p4\n
 source ~/s_ws/install/setup.bash
 ros2 launch smorphi_bringup smorphi.launch.py
 
-# Terminal 2 — Driver
-source ~/s_ws/install/setup.bash
-ros2 run smorphi_node smorphi_node.py
 
-# Terminal 3 — SLAM + Nav2 (exploration mode)
-source ~/s_ws/install/setup.bash
+# Terminal — SLAM + Nav2 (exploration mode)
+source ~/s_ ws/install/setup.bash
 ros2 launch smorphi_bringup navigation_exploration.launch.py
 
-# Terminal 4 — Autonomous explorer (frontier-based)
+# Terminal  — Autonomous explorer (frontier-based)
 source ~/s_ws/install/setup.bash
 ros2 run custom_explorer explorer
 ```
