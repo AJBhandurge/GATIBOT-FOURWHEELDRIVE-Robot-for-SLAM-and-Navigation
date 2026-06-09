@@ -14,7 +14,7 @@ def generate_launch_description():
     
     description_pkg_share = get_package_share_directory('model_description')
     bringup_pkg_share = get_package_share_directory('smorphi_bringup')
-    #smorphi_node_pkg_share = get_package_share_directory('smorphi_node')
+    smorphi_node_pkg_share = get_package_share_directory('smorphi_motor')
 
     #RPLIDAR 
     ydlidar_pkg_share = get_package_share_directory('ydlidar_ros2_driver')
@@ -54,21 +54,27 @@ def generate_launch_description():
     )
 
     # 5. 
-    #smorphi_node = Node(
-     #   package='smorphi_node',
-      #  executable='smorphi_node.py',
-       # output='screen'
-   # )
+    smorphi_node = Node(
+        package='smorphi_motor',
+        executable='motor',
+        output='screen'
+    )
     ydlidar_launch = IncludeLaunchDescription(
          PythonLaunchDescriptionSource(
              os.path.join(ydlidar_pkg_share, 'launch', 'ydlidar_launch.py')
          )
+    )
+    camera_node = Node(
+        package='v4l2_camera',
+        executable='v4l2_camera_node',
+        output='screen'
     )
     # Create Launch Description and add actions
     return LaunchDescription([
         robot_state_publisher_node,
         joint_state_publisher_node,
         rviz_node,
-        #smorphi_node,
-        ydlidar_launch
+        smorphi_node,
+        ydlidar_launch,
+        camera_node
     ])

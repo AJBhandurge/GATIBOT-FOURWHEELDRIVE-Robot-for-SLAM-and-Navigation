@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'smorphi_node'
+package_name = 'smorphi_motor'
 
 setup(
     name=package_name,
@@ -13,14 +13,18 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='smorphi',
-    maintainer_email='smorphi@todo.todo',
+    maintainer='svr',
+    maintainer_email='svr@todo.todo',
     description='TODO: Package description',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    extras_require={
+        'test': [
+            'pytest',
+        ],
+    },
     entry_points={
         'console_scripts': [
-        'smorphi_node.py = smorphi_node.motor:main'
+         'motor = smorphi_motor.motor:main',
         ],
     },
 )
