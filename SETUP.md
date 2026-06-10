@@ -179,20 +179,6 @@ ls -l /dev/smorphi_*
 # /dev/smorphi_mb   -> ttyUSB1
 ```
 
-### Update Your Launch Files
-
-Replace any hardcoded `/dev/ttyUSBx` references in your ROS2 launch files and YAML configs with the stable symlinks:
-
-```yaml
-# ydlidar driver params
-port: /dev/smorphi_lidar
-
-# ESP32 serial driver params
-serial_port: /dev/smorphi_mb
-```
-
-> **Why port-based rules instead of serial number?** The YDLIDAR X3 and many CP2102-based ESP32 boards ship with duplicate/blank USB serial numbers, making serial-number-based rules unreliable. Physical port binding is the robust solution as long as devices are always plugged into the same USB ports.
-
 ---
 
 ## Firewall Configuration
