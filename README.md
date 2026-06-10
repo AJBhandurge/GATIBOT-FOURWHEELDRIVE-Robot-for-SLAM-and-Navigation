@@ -187,11 +187,7 @@ ros2 run nav2_map_server map_saver_cli -f ~/s_ws/src/smorphi_bringup/maps/my_map
 source ~/s_ws/install/setup.bash
 ros2 launch smorphi_bringup smorphi.launch.py
 
-# Terminal 2 — Driver
-source ~/s_ws/install/setup.bash
-ros2 run smorphi_node smorphi_node.py
-
-# Terminal 3 — Nav2 with saved map
+# Terminal 2 — Nav2 with saved map
 source ~/s_ws/install/setup.bash
 ros2 launch smorphi_bringup navigation_launch.py \
   map:=~/s_ws/src/smorphi_bringup/maps/svr1.yaml
@@ -213,7 +209,6 @@ ros2 launch smorphi_bringup navigation_launch.py \
 # Terminal 1 — Robot bringup + driver
 source ~/s_ws/install/setup.bash
 ros2 launch smorphi_bringup smorphi.launch.py
-ros2 run smorphi_node smorphi_node.py
 
 # Terminal 2 — Keyboard control
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
@@ -225,7 +220,7 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard
 
 ```bash
 source ~/s_ws/install/setup.bash
-ros2 launch smorphi_bringup online_async_launch.py
+ros2 launch slam_toolbox online_async_launch.py
 ```
 
 ---
